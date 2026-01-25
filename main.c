@@ -1,43 +1,63 @@
+//--- includes ---
+
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <termios.h>
 
+//--- data ---
 struct termios orig_termios;
 
+//--- declarations ---
 void enableRawMode();
 void disableRawMode();
+void die(const char* s);
 
+//--- init ---
 int main() {
     enableRawMode();
     char c;
     
-    while (read(STDIN_FILENO, &c, 1) == 1 && c != 'q') {
+    while (c != 'q') {
+        c = '\0';
+        if (read(STDIN_FILENO, &c, 1) == -1 && errno == EAGAIN) die("read");
+
         if (iscntrl(c)) {
-            printf("%d\n", c);
+            printf("%d\r\n", c);
         }
         else {
-            printf("%d -> %c\n", c, c);
+            printf("%d -> %c\r\n", c, c);
         }
     }
 
     return 0;
 }
 
+//--- terminal ---
 void enableRawMode() {
-    tcgetattr(STDIN_FILENO, &orig_termios);
+    if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) die("tcgetattr");
     atexit(disableRawMode);
     
     struct termios raw = orig_termios;
-    tcgetattr(STDIN_FILENO, &raw);
+    if (tcgetattr(STDIN_FILENO, &raw) == -1) die("tcgetattr");
     
-    raw.c_iflag &= ~(ICRNL | IXON);
+    raw.c_iflag &= ~(ICRNL | IXON | BRKINT | INPCK | ISTRIP);
+    raw.c_oflag &= ~(OPOST);
+    raw.c_cflag |= (CS8);
     raw.c_lflag &= ~(ECHO | ICANON | ISIG | IEXTEN);
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 1;
 
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
 }
 
 void disableRawMode() {
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios) == -1) die("tcsetattr");
+}
+
+void die(const char* s) {
+    perror(s);
+    exit(1);
 }
